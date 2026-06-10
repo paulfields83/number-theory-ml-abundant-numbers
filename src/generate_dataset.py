@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import time
 from pathlib import Path
 
@@ -45,6 +46,41 @@ def chunk_ranges(max_n: int, chunk_size: int):
         yield start, end
 
 
+def parse_existing_chunk_ranges(output_dir: Path) -> list[tuple[int, int, Path]]:
+    pattern = re.compile(r"features_(\d+)_(\d+)\.(parquet|csv)$")
+    ranges = []
+    for path in sorted(output_dir.glob("features_*_*.*")):
+        match = pattern.match(path.name)
+        if match:
+            ranges.append((int(match.group(1)), int(match.group(2)), path))
+    return ranges
+
+
+def range_fully_covered(start: int, end: int, ranges: list[tuple[int, int, Path]]) -> bool:
+    cursor = start
+    for existing_start, existing_end, _ in sorted(ranges):
+        if existing_end < cursor:
+            continue
+        if existing_start > cursor:
+            return False
+        cursor = max(cursor, existing_end + 1)
+        if cursor > end:
+            return True
+    return False
+
+
+def range_overlaps(start: int, end: int, ranges: list[tuple[int, int, Path]]) -> list[Path]:
+    return [
+        path
+        for existing_start, existing_end, path in ranges
+        if existing_start <= end and start <= existing_end
+    ]
+
+
+def estimate_parquet_disk_mb(row_count: int) -> float:
+    return row_count * 90 / (1024**2)
+
+
 def main() -> None:
     args = parse_args()
     if args.max_n < 1:
@@ -58,19 +94,42 @@ def main() -> None:
     print(f"Numba acceleration: {'enabled' if NUMBA_AVAILABLE else 'not available'}")
     print(f"Estimated SPF memory: {estimate_spf_memory_mb(args.max_n):,.1f} MiB")
     print(f"Estimated per-chunk array memory: {estimate_chunk_memory_mb(args.chunk_size):,.1f} MiB")
+    print(f"Estimated Parquet disk usage: {estimate_parquet_disk_mb(args.max_n):,.1f} MiB")
     if not NUMBA_AVAILABLE and args.max_n > 1_000_000:
         print("Warning: large runs are intended for numba; install requirements first.")
+
+    existing_ranges = parse_existing_chunk_ranges(args.output_dir)
+    if existing_ranges:
+        covered_rows = sum(end - start + 1 for start, end, _ in existing_ranges)
+        print(f"Found {len(existing_ranges):,} existing chunk file(s), covering about {covered_rows:,} rows.")
 
     started = time.perf_counter()
     spf = build_spf(args.max_n)
     print(f"SPF sieve built in {time.perf_counter() - started:,.2f}s")
 
     ranges = list(chunk_ranges(args.max_n, args.chunk_size))
+    missing_ranges = [
+        (start, end)
+        for start, end in ranges
+        if args.overwrite or not range_fully_covered(start, end, existing_ranges)
+    ]
+    print(f"Desired chunks: {len(ranges):,}; chunks needing generation: {len(missing_ranges):,}")
+
     for start, end in tqdm(ranges, desc="chunks"):
         output_path = args.output_dir / f"features_{start:08d}_{end:08d}.parquet"
         if output_path.exists() and not args.overwrite:
             print(f"Skipping existing chunk: {output_path}")
             continue
+        if not args.overwrite and range_fully_covered(start, end, existing_ranges):
+            print(f"Skipping covered range {start:,}-{end:,}; an existing chunk already contains it.")
+            continue
+        overlaps = range_overlaps(start, end, existing_ranges)
+        if overlaps and not args.overwrite:
+            overlap_names = ", ".join(path.name for path in overlaps[:3])
+            raise RuntimeError(
+                f"Refusing to create partially overlapping chunk {start:,}-{end:,}. "
+                f"Overlaps include: {overlap_names}. Use a consistent chunk size or clean data/chunks."
+            )
 
         external_omega = None
         if not args.no_external_omega:
