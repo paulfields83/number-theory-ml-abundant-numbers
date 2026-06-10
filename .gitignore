@@ -9,6 +9,7 @@ work/
 
 data/chunks/*
 !data/chunks/.gitkeep
+data/samples/*
 data/*.csv
 data/*.parquet
 data/*.npy

@@ -278,3 +278,46 @@ python src/train_boundary_cases.py --data-dir work/chunks_1m --results-dir work/
 - `min_prime_factor` / `max_prime_factor` の比や分布特徴量の追加。
 - cross-range を `1e5 -> 1e6`, `1e6 -> 5e6` のように段階化。
 - 50,000,000 件で分布分析を行い、ML は抽出サンプルで検証。
+
+## Large-scale experiments
+
+The project is designed to scale in stages on a local Windows machine. Large raw feature chunks are written under `data/chunks/` as Parquet files and are intentionally not committed to GitHub. Sampled training files under `data/samples/` are also ignored. This keeps the repository small while allowing local experiments to grow from 1,000,000 to 10,000,000 and eventually 50,000,000 integers.
+
+The large-scale workflow uses chunk scanning and sampling because loading all rows into memory is not practical at 10M or 50M. Distribution analysis reads one chunk at a time. Machine-learning experiments train on lower ranges and test on sampled higher ranges, while still avoiding `sigma_ratio` as an input feature.
+
+Recommended step 1: verify 1,000,000 rows.
+
+```powershell
+python src/generate_dataset.py --max-n 1000000 --chunk-size 1000000
+python src/analyze_large_distribution.py --data-dir data/chunks
+python src/train_large_cross_range.py --data-dir data/chunks --train-max-n 100000 --test-ranges "100001:1000000" --sample-per-range 200000
+```
+
+Recommended step 2: extend to 10,000,000 rows.
+
+```powershell
+python src/generate_dataset.py --max-n 10000000 --chunk-size 1000000
+python src/analyze_large_distribution.py --data-dir data/chunks
+python src/sample_large_dataset.py --data-dir data/chunks --output-path data/samples/sample_10m.parquet --sample-size 500000 --random-state 42
+python src/train_large_cross_range.py --data-dir data/chunks --train-max-n 100000 --test-ranges "100001:1000000,1000001:10000000" --sample-per-range 200000
+```
+
+Optional advanced step: extend to 50,000,000 rows only when disk space and runtime are acceptable.
+
+```powershell
+python src/generate_dataset.py --max-n 50000000 --chunk-size 1000000
+python src/analyze_large_distribution.py --data-dir data/chunks
+```
+
+Do not run the 50M command casually. The generator prints estimated SPF memory, per-chunk working memory, and rough Parquet disk usage before generation. It also skips chunks that already exist or are already covered by existing chunk ranges, so staged runs can continue without overwriting previous data.
+
+Large-scale outputs:
+
+- `results/large_distribution_summary.csv`
+- `results/large_omega_abundant_rate.csv`
+- `results/large_Omega_abundant_rate.csv`
+- `results/large_range_summary.csv`
+- `results/large_cross_range_metrics.csv`
+- `figures/large_omega_abundant_rate.png`
+- `figures/large_range_abundant_share.png`
+- `figures/large_cross_range_f1.png`
