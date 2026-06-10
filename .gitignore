@@ -16,9 +16,22 @@ data/*.npz
 
 figures/*.png
 !figures/.gitkeep
+!figures/rule_baseline_comparison.png
+!figures/feature_ablation_accuracy.png
+!figures/feature_ablation_f1.png
+!figures/fixed_omega_accuracy.png
+!figures/boundary_case_accuracy.png
+!figures/cross_range_comparison.png
+!figures/confusion_matrix_fixed_omega_*.png
+!figures/confusion_matrix_boundary_*.png
 
 results/*.csv
-results/*.json
 results/*.txt
+results/*.json
 results/*.joblib
 !results/.gitkeep
+!results/rule_baselines.csv
+!results/feature_ablation_metrics.csv
+!results/fixed_omega_metrics.csv
+!results/boundary_case_metrics.csv
+!results/cross_range_metrics.csv
