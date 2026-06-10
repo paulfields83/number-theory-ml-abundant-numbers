@@ -2,5 +2,7 @@ numpy
 pandas
 scikit-learn
 matplotlib
-sympy
-jupyter
+pyarrow
+tqdm
+joblib
+numba
